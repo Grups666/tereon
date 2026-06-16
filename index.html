@@ -1043,7 +1043,7 @@
           id: 'outlines-basins',
           name: 'Basins',
           type: 'vector',
-          visible: true,
+          visible: false,
           interactive: true,
           moduleId: 'foundation',
           groupPath: ['outlines', 'basins'],
@@ -2290,7 +2290,12 @@
           ...params.getAll('moduleUrl'),
           ...params.getAll('manifest')
         ].filter(Boolean);
-        if (!urls.length) return;
+        const availableUrls = [
+          ...params.getAll('availableModule'),
+          ...params.getAll('availableModuleUrl'),
+          ...params.getAll('availableManifest')
+        ].filter(Boolean);
+        if (!urls.length && !availableUrls.length) return;
 
         for (const url of urls) {
           try {
@@ -2299,6 +2304,27 @@
           } catch (error) {
             console.error('URL module failed', error);
             this.toast(`URL module failed: ${error.message}`);
+          }
+        }
+        for (const url of availableUrls) {
+          try {
+            const manifest = await this.fetchRemoteManifest(url);
+            if (!this.modules.some((module) => module.id === manifest.id)) {
+              this.modules.push({
+                id: manifest.id,
+                name: manifest.name || manifest.id,
+                description: manifest.description || '',
+                defaultLoad: false,
+                manifestUrl: manifest.manifestUrl || url,
+                basePath: manifest.basePath || '',
+                entry: manifest.entry || './index.js',
+                className: manifest.className || '',
+                manifest
+              });
+            }
+          } catch (error) {
+            console.error('Available URL module failed', error);
+            this.toast(`Available module failed: ${error.message}`);
           }
         }
         this.updateModuleList();
