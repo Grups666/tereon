@@ -2628,13 +2628,13 @@
             <input type="checkbox" class="layer-checkbox" ${basemapLayer.visible ? 'checked' : ''}>
             <span class="layer-name">Land</span>
           </div>
-          <div class="layer-sublayer" data-subid="basins">
-            <input type="checkbox" class="layer-checkbox" ${outlinesBasinsLayer?.visible ? 'checked' : ''}>
-            <span class="layer-name">Basins</span>
-          </div>
           <div class="layer-sublayer" data-subid="countries">
             <input type="checkbox" class="layer-checkbox" ${countryOutlinesLayer?.visible ? 'checked' : ''}>
             <span class="layer-name">Countries</span>
+          </div>
+          <div class="layer-sublayer" data-subid="basins">
+            <input type="checkbox" class="layer-checkbox" ${outlinesBasinsLayer?.visible ? 'checked' : ''}>
+            <span class="layer-name">Basins</span>
           </div>
         `;
       },
