@@ -915,7 +915,6 @@
     <!-- Scripts -->
     <script src="./assets/basin-data.js"></script>
     <script src="./assets/land-50m.js"></script>
-    <script src="./assets/lakes-50m.js?v=2026-06-17-water-gradient"></script>
     <script src="./assets/country-polygons-110m.js"></script>
 
     <script src="./foundation/core/event-bus.js"></script>
@@ -956,8 +955,6 @@
           label: 'Light',
           background: ['#f7fafc', '#eef6f8', '#e7f0f4'],
           grid: 'rgba(112, 128, 144, 0.15)',
-          waterFill: 'rgba(232, 243, 247, 0.98)',
-          waterStroke: 'rgba(72, 84, 96, 0.24)',
           landFill: 'rgba(255, 255, 255, 0.92)',
           landStroke: 'rgba(72, 84, 96, 0.3)',
           basinStroke: 'rgba(72, 84, 96, 0.15)',
@@ -967,8 +964,6 @@
           label: 'Dark',
           background: ['#08111f', '#0f1e2f', '#132638'],
           grid: 'rgba(148, 163, 184, 0.16)',
-          waterFill: 'rgba(12, 29, 43, 0.98)',
-          waterStroke: 'rgba(148, 163, 184, 0.26)',
           landFill: 'rgba(30, 41, 59, 0.96)',
           landStroke: 'rgba(148, 163, 184, 0.38)',
           basinStroke: 'rgba(148, 163, 184, 0.22)',
@@ -1784,7 +1779,11 @@
         const theme = this.getCurrentMapStyle();
 
         // Background
-        ctx.fillStyle = this.createMapWaterFill(ctx, height, theme);
+        const grad = ctx.createLinearGradient(0, 0, 0, height);
+        grad.addColorStop(0, theme.background[0]);
+        grad.addColorStop(0.58, theme.background[1]);
+        grad.addColorStop(1, theme.background[2]);
+        ctx.fillStyle = grad;
         ctx.fillRect(0, 0, width, height);
 
         if (this.imageryEnabled) {
@@ -1819,7 +1818,6 @@
             layer.renderer(ctx, layer, viewport);
           }
         }
-        this.renderInlandWaterMask(ctx, viewport);
         viewport.interacting = false;
       },
 
@@ -1854,75 +1852,6 @@
             ctx.stroke(path);
           }
         }
-      },
-
-      renderInlandWaterMask(ctx, viewport) {
-        const basemapLayer = this.layerManager?.getLayer('basemap');
-        if (!basemapLayer?.visible || this.imageryEnabled) return;
-
-        const lakes = window.LAKES_50M || [];
-        if (!lakes.length) return;
-
-        const base = this.getBaseScale();
-        const { width, height, offsetX, offsetY } = viewport;
-        const style = this.getCurrentMapStyle();
-
-        const leftLon = (-width / 2 - offsetX) / base;
-        const rightLon = (width / 2 - offsetX) / base;
-        const topLat = (height / 2 + offsetY) / base;
-        const bottomLat = (-height / 2 + offsetY) / base;
-        const minLat = Math.min(topLat, bottomLat);
-        const maxLat = Math.max(topLat, bottomLat);
-        const firstSeg = Math.floor(leftLon / 360);
-        const lastSeg = Math.ceil(rightLon / 360);
-
-        ctx.fillStyle = this.createMapWaterFill(ctx, height, style);
-        ctx.strokeStyle = style.waterStroke || style.landStroke;
-        ctx.lineWidth = 0.45;
-
-        for (let seg = firstSeg; seg <= lastSeg; seg++) {
-          const lonOffset = seg * 360;
-          for (const lake of lakes) {
-            if (!this.isBBoxVisible(lake.bbox, lonOffset, leftLon, rightLon, minLat, maxLat)) continue;
-            const path = this.createRingsPath(lake.rings || [], lonOffset, base, width, height, offsetX, offsetY);
-            ctx.fill(path, 'evenodd');
-            ctx.stroke(path);
-          }
-        }
-      },
-
-      createMapWaterFill(ctx, height, style) {
-        const colors = style.background || ['#f7fafc', '#eef6f8', '#e7f0f4'];
-        const grad = ctx.createLinearGradient(0, 0, 0, height);
-        grad.addColorStop(0, colors[0]);
-        grad.addColorStop(0.58, colors[1]);
-        grad.addColorStop(1, colors[2]);
-        return grad;
-      },
-
-      isBBoxVisible(bbox, lonOffset, leftLon, rightLon, minLat, maxLat) {
-        if (!bbox || bbox.length < 4) return true;
-        const [minLon, minY, maxLon, maxY] = bbox;
-        return maxLon + lonOffset >= leftLon &&
-          minLon + lonOffset <= rightLon &&
-          maxY >= minLat &&
-          minY <= maxLat;
-      },
-
-      createRingsPath(rings, lonOffset, base, width, height, offsetX, offsetY) {
-        const path = new Path2D();
-        for (const ring of rings) {
-          if (ring.length < 3) continue;
-          for (let i = 0; i < ring.length; i++) {
-            const [lon, lat] = ring[i];
-            const x = width / 2 + (lon + lonOffset) * base + offsetX;
-            const y = height / 2 - lat * base + offsetY;
-            if (i === 0) path.moveTo(x, y);
-            else path.lineTo(x, y);
-          }
-          path.closePath();
-        }
-        return path;
       },
 
       renderRasterTiles(ctx, viewport, tileUrl) {
