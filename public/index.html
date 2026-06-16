@@ -915,6 +915,7 @@
     <!-- Scripts -->
     <script src="./assets/basin-data.js"></script>
     <script src="./assets/land-50m.js"></script>
+    <script src="./assets/lakes-50m.js?v=2026-06-17-caspian"></script>
     <script src="./assets/country-polygons-110m.js"></script>
 
     <script src="./foundation/core/event-bus.js"></script>
@@ -955,6 +956,8 @@
           label: 'Light',
           background: ['#f7fafc', '#eef6f8', '#e7f0f4'],
           grid: 'rgba(112, 128, 144, 0.15)',
+          waterFill: 'rgba(232, 243, 247, 0.98)',
+          waterStroke: 'rgba(72, 84, 96, 0.24)',
           landFill: 'rgba(255, 255, 255, 0.92)',
           landStroke: 'rgba(72, 84, 96, 0.3)',
           basinStroke: 'rgba(72, 84, 96, 0.15)',
@@ -964,6 +967,8 @@
           label: 'Dark',
           background: ['#08111f', '#0f1e2f', '#132638'],
           grid: 'rgba(148, 163, 184, 0.16)',
+          waterFill: 'rgba(12, 29, 43, 0.98)',
+          waterStroke: 'rgba(148, 163, 184, 0.26)',
           landFill: 'rgba(30, 41, 59, 0.96)',
           landStroke: 'rgba(148, 163, 184, 0.38)',
           basinStroke: 'rgba(148, 163, 184, 0.22)',
@@ -1025,6 +1030,18 @@
           renderer: (ctx, layer, vp) => this.renderBasemap(ctx, vp)
         });
 
+        this.layerManager.addLayer({
+          id: 'outlines-countries',
+          name: 'Countries',
+          type: 'vector',
+          visible: false,
+          interactive: true,
+          moduleId: 'foundation',
+          groupPath: ['outlines', 'countries'],
+          renderer: (ctx, layer, vp) => this.renderCountryOutlines(ctx, vp),
+          hitTest: (lon, lat, vp, layer) => this.hitTestCountryOutlines(lon, lat, vp)
+        });
+
         // Add basin layer under Outlines > Basins. This single third-level layer owns
         // both basin rendering and basin click/hover interaction.
         this.layerManager.addLayer({
@@ -1037,18 +1054,6 @@
           groupPath: ['outlines', 'basins'],
           renderer: (ctx, layer, vp) => this.renderBasinsLayer(ctx, vp),
           hitTest: (lon, lat, vp, layer) => this.hitTestBasins(lon, lat)
-        });
-
-        this.layerManager.addLayer({
-          id: 'outlines-countries',
-          name: 'Countries',
-          type: 'vector',
-          visible: false,
-          interactive: true,
-          moduleId: 'foundation',
-          groupPath: ['outlines', 'countries'],
-          renderer: (ctx, layer, vp) => this.renderCountryOutlines(ctx, vp),
-          hitTest: (lon, lat, vp, layer) => this.hitTestCountryOutlines(lon, lat, vp)
         });
 
         // Setup interactions
@@ -1818,6 +1823,7 @@
             layer.renderer(ctx, layer, viewport);
           }
         }
+        this.renderInlandWaterMask(ctx, viewport);
         viewport.interacting = false;
       },
 
@@ -1854,6 +1860,66 @@
         }
       },
 
+      renderInlandWaterMask(ctx, viewport) {
+        const basemapLayer = this.layerManager?.getLayer('basemap');
+        if (!basemapLayer?.visible || this.imageryEnabled) return;
+
+        const lakes = window.LAKES_50M || [];
+        if (!lakes.length) return;
+
+        const base = this.getBaseScale();
+        const { width, height, offsetX, offsetY } = viewport;
+        const style = this.getCurrentMapStyle();
+
+        const leftLon = (-width / 2 - offsetX) / base;
+        const rightLon = (width / 2 - offsetX) / base;
+        const topLat = (height / 2 + offsetY) / base;
+        const bottomLat = (-height / 2 + offsetY) / base;
+        const minLat = Math.min(topLat, bottomLat);
+        const maxLat = Math.max(topLat, bottomLat);
+        const firstSeg = Math.floor(leftLon / 360);
+        const lastSeg = Math.ceil(rightLon / 360);
+
+        ctx.fillStyle = style.waterFill || 'rgba(232, 243, 247, 0.98)';
+        ctx.strokeStyle = style.waterStroke || style.landStroke;
+        ctx.lineWidth = 0.45;
+
+        for (let seg = firstSeg; seg <= lastSeg; seg++) {
+          const lonOffset = seg * 360;
+          for (const lake of lakes) {
+            if (!this.isBBoxVisible(lake.bbox, lonOffset, leftLon, rightLon, minLat, maxLat)) continue;
+            const path = this.createRingsPath(lake.rings || [], lonOffset, base, width, height, offsetX, offsetY);
+            ctx.fill(path, 'evenodd');
+            ctx.stroke(path);
+          }
+        }
+      },
+
+      isBBoxVisible(bbox, lonOffset, leftLon, rightLon, minLat, maxLat) {
+        if (!bbox || bbox.length < 4) return true;
+        const [minLon, minY, maxLon, maxY] = bbox;
+        return maxLon + lonOffset >= leftLon &&
+          minLon + lonOffset <= rightLon &&
+          maxY >= minLat &&
+          minY <= maxLat;
+      },
+
+      createRingsPath(rings, lonOffset, base, width, height, offsetX, offsetY) {
+        const path = new Path2D();
+        for (const ring of rings) {
+          if (ring.length < 3) continue;
+          for (let i = 0; i < ring.length; i++) {
+            const [lon, lat] = ring[i];
+            const x = width / 2 + (lon + lonOffset) * base + offsetX;
+            const y = height / 2 - lat * base + offsetY;
+            if (i === 0) path.moveTo(x, y);
+            else path.lineTo(x, y);
+          }
+          path.closePath();
+        }
+        return path;
+      },
+
       renderRasterTiles(ctx, viewport, tileUrl) {
         const z = this.getRasterZoom();
         const n = 2 ** z;
@@ -1879,8 +1945,10 @@
           for (let y = minY; y <= maxY; y++) {
             const north = this.tileYToLat(y, z);
             const south = this.tileYToLat(y + 1, z);
-            const sy = height / 2 - north * base + offsetY;
-            const sh = Math.max(1, (north - south) * base);
+            const drawNorth = y === 0 ? 90 : north;
+            const drawSouth = y === n - 1 ? -90 : south;
+            const sy = height / 2 - drawNorth * base + offsetY;
+            const sh = Math.max(1, (drawNorth - drawSouth) * base);
             const tile = this.getRasterTile(z, wrappedX, y, tileUrl);
             if (tile.loaded) {
               this.drawRasterTile(ctx, tile.image, sx, sy, sw + 1, sh + 1, y, z);
